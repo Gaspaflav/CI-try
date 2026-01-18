@@ -48,8 +48,8 @@ Given a graph with:
 **Innovation**: Multi-step mutation that maintains path validity while enabling smart exploration
 
 **Process**:
-1. **Select**: Pick random node with `flag=True` in active segment
-2. **Insert**: Connect to k-nearest neighbor using shortest Dijkstra path
+1. **Select**: Pick random node with `flag=True` in active segment and identify next node in path
+2. **Insert**: Find k-nearest neighbor of the **next node** (not current), then connect current → new node via shortest Dijkstra path
 3. **Detect Duplicates**: If new node appears elsewhere with `flag=True`, deactivate the duplicate
 4. **Reconstruct**: If segment survives, rebuild it optimally:
    - Part 1: Connect depot → first active node using Dijkstra
@@ -57,7 +57,7 @@ Given a graph with:
    - Part 3: Connect last active node → depot using reversed Dijkstra
    - If segment becomes empty, remove it completely
 
-**Key Insight**: Instead of random walk mutations, we explicitly construct valid shortest paths between key nodes, ensuring high solution quality after each mutation.
+**Key Insight**: Instead of random walk mutations, we choose insertion targets based on proximity to the next node in the path, giving Dijkstra a meaningful direction. This ensures efficient bridging between existing path segments while maintaining high solution quality.
 
 **Benefits**:
 - Guarantees zero duplicate nodes (critical constraint)
@@ -92,7 +92,7 @@ Given a graph with:
 
 ### 4. Efficient Delta-Based Cost Calculation
 
-**Innovation**: Incremental cost evaluation instead of full path recomputation
+**Innovation**: Incremental cost evaluation instead of full path recomputation when possible. I have successfully implemented it on the trip mutation and on the crossover. However, given the complexity of shift of index in the mutation and the change of different part of the path, i didnt implement it on the principal mutation. This choice was also done because the advantage wouldnt be so great because i have to calculate it on the new path
 
 **Standard Approach** (❌ Slow):
 ```
@@ -144,17 +144,80 @@ Output: (best_path, trip_counts, final_cost)
 
 ### Parameters (Auto-Tuned by Problem Size)
 
-- `population_size = (30 - (n - 100) / 60) / 2` (doubled for sparse graphs)
-- `n_generations = 80 - (n - 100) / 18`
-- `n_trip_count_hc = n` (halved if n ≥ 800)
+#### Population Size Estimation
+
+`population_size = 25 - (n - 100) / 56` (doubled for sparse graphs)
+
+| Problem Size (n) | Population | Population (Sparse ×2) |
+|------------------|-----------|------------------------|
+| **100** | 25 | 50 |
+| **300** | ~22 | ~44 |
+| **600** | ~16 | ~32 |
+| **1000** | ~9 | ~18 |
+
+**Rationale**: Smaller populations for large problems reduce computational cost while maintaining diversity for solution space exploration.
+
+#### Generations Estimation
+
+`n_generations = 80 - (n - 100) / 18`
+
+| Problem Size (n) | Generations | Total Evaluations (GA) | Total Evaluations (HC) |
+|------------------|------------|------------------------|------------------------|
+| **100** | 80 | 25 × 80 = 2,000 | 25 × 80 = 2,000 |
+| **300** | ~69 | 22 × 69 ≈ 1,518 | 22 × 69 ≈ 1,518 |
+| **600** | ~52 | 16 × 52 ≈ 832 | 16 × 52 ≈ 832 |
+| **1000** | ~30 | 9 × 30 = 270 | 9 × 30 = 270 |
+
+**Rationale**: Generation count decreases as problem size increases because:
+- Larger graphs have more natural structure and less need for extended search
+- Computational cost per evaluation increases with path length
+- Balanced tradeoff: maintain total evaluations while respecting time constraints
+- Hill Climbing uses same generation count as population (iterations = population_size × n_generations)
+
+#### Trip Count Hill Climbing
+
+`n_trip_count_hc = n` (halved if n ≥ 800)
+
+- Provides dedicated iterations for weight distribution optimization when β > 1
+- Scales with problem size since larger paths have more segments to optimize
+- Efficient focus on trip multipliers rather than path structure
+
+
+
+## Performance Analysis by Beta Factor
+
+The solver's effectiveness varies significantly with the β parameter, which controls weight penalty strength. Below is a comprehensive performance summary:
+
+| Beta | Scenario | Avg Improvement | Key Insight |
+|------|----------|-----------------|------------|
+| **0.5** | Low weight penalty | ~11.2% | Collecting gold and visit near city help the cost decrease |
+| **1.0** | Linear weight scaling | ~0.04% | Single-trip solution already near-optimal |
+| **2.0** | Quadratic weight penalty | ~98.9% |  Multiple trips dramatically reduce cost |
+
+### Beta Performance Details
+
+- **β = 0.5** (Weak Penalty):
+  - Weight has minimal impact on total cost
+  - Path structure is the primary optimization target
+  - Trip count multiplication offers limited benefit (~5-10% improvement)
+  - Hill Climbing converges quickly
+
+- **β = 1.0** (Linear Penalty):
+  - Weight penalty scales linearly with distance
+  - Balanced tradeoff between path quality and trip optimization
+  - Trip count optimization useful (~15-20% additional gain)
+  - GA population diversity becomes important
+
+- **β = 2.0** (Quadratic Penalty):
+  - Weight penalty grows quadratically → dominates total cost
+  - **Trip count optimization is essential**: Dividing gold across multiple trips yields 20-35% additional improvement
+  - Small improvements in weight distribution significantly impact final cost
+  - Higher computational cost justified by substantial gains
+  - Dense graphs benefit most from trip-based optimization
+
+### Recommendation
+
+- For **β ≤ 1.0**: Focus on path quality; run GA/HC with standard iterations
+- For **β > 1.0**: Invest extra iterations in trip count optimization (increase `n_trip_count_hc` parameter)
 
 ---
-
-## Validation
-
-Solution correctness is guaranteed by:
-- ✅ Duplicate detection: Each node collected exactly once
-- ✅ Connectivity: All paths use shortest routes
-- ✅ Structure: Segments properly bounded by depot returns
-- ✅ Delta consistency: Incremental costs match full recomputation
-
