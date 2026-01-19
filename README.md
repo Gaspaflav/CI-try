@@ -1,7 +1,7 @@
 # Adaptive Solver for Orienteering Problem with Constraints
 
 ## Project Overview
-
+Here you will find a resume fo the project. If you wanna read a commented version of the code, read the jupiter notebook, has the same code of the .py file
 This project implements a **hybrid adaptive solver** for the Orienteering Problem (OP) with weight-dependent costs. The solver automatically selects between **Genetic Algorithm** and **Hill Climbing** based on problem density and applies intelligent mutation strategies to optimize solutions.
 
 ### Problem Definition
